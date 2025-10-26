@@ -4,7 +4,7 @@ const {calculateWithdrawalFee} = require('../utils/calcFees')
 // Request new withdrawal
 exports.requestWithdrawal = async (req, res) => {
   try {
-    const {amount, destinationAddress} = req.body
+    const {amount, destinationAddress, walletName, network} = req.body
     const user = req.user
     const amt = Number(amount)
 
@@ -12,6 +12,10 @@ exports.requestWithdrawal = async (req, res) => {
       return res.status(400).json({message: 'Invalid amount'})
     if (amt > user.balance)
       return res.status(400).json({message: 'Insufficient balance'})
+    if (!walletName || !network)
+      return res
+        .status(400)
+        .json({message: 'Wallet name and network are required'})
 
     const {fee, receivable} = calculateWithdrawalFee(amt, user.balance)
 
@@ -19,12 +23,16 @@ exports.requestWithdrawal = async (req, res) => {
       user: user._id,
       amount: amt,
       fee,
+
       receivable,
-      destinationAddress
+      destinationAddress,
+      walletName,
+      network
     })
 
     res.status(201).json({withdrawal: w})
   } catch (err) {
+    console.error('requestWithdrawal error:', err)
     res.status(500).json({message: err.message})
   }
 }
@@ -37,6 +45,7 @@ exports.getUserWithdrawals = async (req, res) => {
     })
     res.json(withdrawals)
   } catch (err) {
+    console.error('getUserWithdrawals error:', err)
     res.status(500).json({message: err.message})
   }
 }
