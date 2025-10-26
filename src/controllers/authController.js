@@ -13,9 +13,37 @@ const CLAIM_COOLDOWN_HOURS = 24
 const buildReferralLink = code =>
   `${process.env.BASE_URL || 'http://localhost:5000'}/register?ref=${code}`
 
+/** Resolve a ref string to a parent user _id.
+ * Accepts either: existing user's referralCode OR a valid ObjectId (_id).
+ * Returns null if not found.
+ */
+async function resolveRefToUserId(ref) {
+  if (!ref) return null
+  // Try by referralCode first
+  let parent = await User.findOne({referralCode: ref}).select('_id')
+  if (parent) return parent._id
+
+  // Try as ObjectId (_id) if looks like one
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(ref)
+  if (isObjectId) {
+    parent = await User.findById(ref).select('_id')
+    if (parent) return parent._id
+  }
+  return null
+}
+
+/** Generate a short referral code if the user doesn't have one yet */
+function generateReferralCodeSeed(userId) {
+  // base36 shorten + last 6 of objectId for readability
+  const tail = String(userId).slice(-6)
+  const rnd = Math.random().toString(36).substring(2, 8)
+  return `${rnd}${tail}`.toLowerCase()
+}
+
 async function buildDashboard(user) {
   const userId = user._id
 
+  // daily claim status
   let eligible = true,
     nextClaimAt = null
   if (user.lastDailyClaimAt) {
@@ -28,6 +56,7 @@ async function buildDashboard(user) {
     }
   }
 
+  // today's profit
   const start = new Date()
   start.setHours(0, 0, 0, 0)
   const todayAgg = await ProfitHistory.aggregate([
@@ -36,6 +65,7 @@ async function buildDashboard(user) {
   ])
   const todaysProfit = todayAgg.length ? todayAgg[0].sum : 0
 
+  // totals
   const withAgg = await Withdrawal.aggregate([
     {$match: {user: userId, status: 'Approved'}},
     {$group: {_id: null, sum: {$sum: '$amount'}}}
@@ -107,6 +137,64 @@ async function buildDashboard(user) {
   }
 }
 
+/** POST /api/auth/register
+ * body: { firstName, lastName, email, password, ref? }
+ * Creates user, resolves ref to parent, sets referredBy, generates referralCode if missing,
+ * returns JWT + dashboard payload (same shape as login).
+ */
+exports.register = async (req, res) => {
+  try {
+    const {firstName, lastName, email, password, ref} = req.body
+
+    // basic validation
+    if (!firstName || !lastName || !email || !password) {
+      return res.status(400).json({message: 'Missing required fields'})
+    }
+
+    // already exists?
+    const exists = await User.findOne({email})
+    if (exists)
+      return res.status(400).json({message: 'Email already registered'})
+
+    // resolve referredBy (if ref provided)
+    let referredBy = null
+    if (ref) {
+      referredBy = await resolveRefToUserId(ref)
+    }
+
+    // create user
+    const newUser = await User.create({
+      firstName,
+      lastName,
+      email,
+      password, // assume pre-save hash via user model
+      role: 'user',
+      referredBy,
+      balance: 0,
+      totalProfit: 0
+    })
+
+    // ensure referralCode exists
+    if (!newUser.referralCode) {
+      newUser.referralCode = generateReferralCodeSeed(newUser._id)
+      await newUser.save()
+    }
+
+    // token + dashboard
+    const token = generateToken({id: newUser._id, role: newUser.role})
+    const dashboard = await buildDashboard(newUser)
+
+    return res.status(201).json({token, ...dashboard})
+  } catch (err) {
+    console.error('register error:', err)
+    return res.status(500).json({message: err.message})
+  }
+}
+
+/** POST /api/auth/login
+ * body: { email, password }
+ * Returns JWT + full dashboard payload
+ */
 exports.login = async (req, res) => {
   try {
     const {email, password} = req.body
@@ -117,6 +205,9 @@ exports.login = async (req, res) => {
     if (!ok) return res.status(400).json({message: 'Invalid credentials'})
 
     user.lastLoginAt = new Date()
+    if (!user.referralCode) {
+      user.referralCode = generateReferralCodeSeed(user._id) // backfill if older account
+    }
     await user.save()
 
     const token = generateToken({id: user._id, role: user.role})
@@ -124,6 +215,7 @@ exports.login = async (req, res) => {
 
     res.json({token, ...dashboard})
   } catch (err) {
+    console.error('login error:', err)
     res.status(500).json({message: err.message})
   }
 }
