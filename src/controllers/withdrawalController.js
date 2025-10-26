@@ -1,11 +1,13 @@
 const Withdrawal = require('../models/Withdrawal')
 const {calculateWithdrawalFee} = require('../utils/calcFees')
 
+// Request new withdrawal
 exports.requestWithdrawal = async (req, res) => {
   try {
     const {amount, destinationAddress} = req.body
     const user = req.user
     const amt = Number(amount)
+
     if (!amt || amt <= 0)
       return res.status(400).json({message: 'Invalid amount'})
     if (amt > user.balance)
@@ -22,6 +24,18 @@ exports.requestWithdrawal = async (req, res) => {
     })
 
     res.status(201).json({withdrawal: w})
+  } catch (err) {
+    res.status(500).json({message: err.message})
+  }
+}
+
+// User withdrawal history
+exports.getUserWithdrawals = async (req, res) => {
+  try {
+    const withdrawals = await Withdrawal.find({user: req.user._id}).sort({
+      createdAt: -1
+    })
+    res.json(withdrawals)
   } catch (err) {
     res.status(500).json({message: err.message})
   }
