@@ -23,7 +23,6 @@ exports.requestWithdrawal = async (req, res) => {
       user: user._id,
       amount: amt,
       fee,
-
       receivable,
       destinationAddress,
       walletName,

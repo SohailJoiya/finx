@@ -9,9 +9,11 @@ const {
 
 const ProfitHistory = require('../models/ProfitHistory')
 
-async function sendNotificationDoc({user, title, message}, session) {
-  await Notification.create([{user, title, message}], {session})
+async function sendNotificationDoc(user, title, message) {
+  console.log('sendNotificationDoc', user, title, message)
+  await Notification.create([{user, title, message}])
 }
+
 const COMMISSION_RATES = [10, 5, 3, 2, 1] // levels 1..5
 const DEPOSIT_BONUS_PCT = 1
 
@@ -227,7 +229,7 @@ exports.declineDeposit = async (req, res) => {
     deposit.status = 'Declined'
     deposit.adminReason = reason || ''
     await deposit.save()
-    await sendNotification(
+    await sendNotificationDoc(
       deposit.user,
       'Deposit Declined ❌',
       `Your deposit of $${deposit.amount} was declined. Reason: ${
@@ -253,7 +255,7 @@ exports.approveWithdrawal = async (req, res) => {
     await user.save()
     w.status = 'Approved'
     await w.save()
-    await sendNotification(
+    await sendNotificationDoc(
       user._id,
       'Withdrawal Approved 💸',
       `Your withdrawal of $${w.amount} has been approved.`
@@ -274,7 +276,7 @@ exports.declineWithdrawal = async (req, res) => {
     w.status = 'Declined'
     w.adminReason = reason || ''
     await w.save()
-    await sendNotification(
+    await sendNotificationDoc(
       w.user,
       'Withdrawal Declined ⚠️',
       `Your withdrawal of $${w.amount} was declined. Reason: ${

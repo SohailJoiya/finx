@@ -34,6 +34,8 @@ app.use(
 )
 app.use('/api/rewards', require('./routes/rewardRoutes'))
 app.use('/api/dashboard', require('./routes/dashboardRoutes'))
+// app.js or index.js
+app.use('/api', require('./routes/teamRoutes'))
 
 // Cron
 require('./cron/monthlyRewards')
