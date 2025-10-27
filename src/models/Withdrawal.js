@@ -1,4 +1,4 @@
-const mongoose = require('mongoose')
+// removed mongoose require
 const withdrawalSchema = new mongoose.Schema(
   {
     user: {type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true},

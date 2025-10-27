@@ -1,5 +1,5 @@
 // models/ProfitHistory.js
-const mongoose = require('mongoose')
+// removed mongoose require
 
 const profitHistorySchema = new mongoose.Schema(
   {

@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+// removed mongoose require
 
 const systemSettingsSchema = new mongoose.Schema({
   wallets: {

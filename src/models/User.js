@@ -1,4 +1,4 @@
-const mongoose = require('mongoose')
+// removed mongoose require
 const bcrypt = require('bcryptjs')
 
 const walletSchema = new mongoose.Schema({

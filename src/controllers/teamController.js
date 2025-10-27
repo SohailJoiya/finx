@@ -1,5 +1,5 @@
 // controllers/team.controller.js
-const mongoose = require('mongoose')
+// removed mongoose require
 const User = require('../models/User')
 const Deposit = require('../models/Deposit')
 

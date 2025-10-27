@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+// removed mongoose require
 
 const referralCommissionSchema = new mongoose.Schema({
   fromUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
