@@ -16,8 +16,16 @@ async function sendNotificationDoc(user, title, message) {
 
 const COMMISSION_RATES = [10, 5, 3, 2, 1] // levels 1..5
 const DEPOSIT_BONUS_PCT = 1
+const MIN_PROFIT_BALANCE = 35 // ✅ New: minimum balance required to receive any profit
 
 const r2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100
+
+// ✅ helper: only users with balance >= 35 can receive any "profit" (bonus/commission)
+function canReceiveProfitBalance(userDoc) {
+  const bal = Number(userDoc?.balance) || 0
+  return bal >= MIN_PROFIT_BALANCE
+}
+
 // Admin can enable/disable the 1% first-deposit bonus. We try, in order:
 // 1) ENV var FIRST_DEPOSIT_BONUS_ENABLED=true|false
 // 2) Optional Settings model: settings.firstDepositBonusEnabled (boolean)
@@ -57,7 +65,7 @@ async function coreApprove(depositId, {useSession} = {}) {
       throw Object.assign(new Error('Already processed'), {code: 400})
     }
 
-    // 2) Credit depositor (principal)
+    // 2) Credit depositor (principal) — always
     const user = await User.findById(deposit.user).session(sessionOrNull)
     if (!user) throw new Error('User not found')
 
@@ -73,7 +81,7 @@ async function coreApprove(depositId, {useSession} = {}) {
     const bonusAllowed = await isOnePercentBonusEnabled()
 
     let bonus = 0
-    if (bonusAllowed && isFirstApproved) {
+    if (bonusAllowed && isFirstApproved && canReceiveProfitBalance(user)) {
       bonus = r2(deposit.amount * (DEPOSIT_BONUS_PCT / 100))
       if (bonus > 0) {
         user.balance = r2(user.balance + bonus)
@@ -92,6 +100,14 @@ async function coreApprove(depositId, {useSession} = {}) {
         )
       }
     }
+    // (Optional) else notify they didn't meet min balance:
+    // else {
+    //   await Notification.create([{
+    //     user: user._id,
+    //     title: 'Bonus Not Applied',
+    //     message: `Bonus requires a minimum balance of $${MIN_PROFIT_BALANCE}.`
+    //   }], {session: sessionOrNull})
+    // }
 
     // 4) Multi-level commissions to upline (apply on EVERY approved deposit)
     const notifications = [
@@ -118,7 +134,7 @@ async function coreApprove(depositId, {useSession} = {}) {
       const ancestor = await User.findById(ancestorId).session(sessionOrNull)
       if (!ancestor) break
 
-      if (commission > 0) {
+      if (commission > 0 && canReceiveProfitBalance(ancestor)) {
         ancestor.balance = r2((ancestor.balance || 0) + commission)
         await ancestor.save({session: sessionOrNull})
 
@@ -146,6 +162,14 @@ async function coreApprove(depositId, {useSession} = {}) {
           }) from your referral’s deposit.`
         })
       }
+      // (Optional) else notify ancestor they didn't meet min balance:
+      // else {
+      //   notifications.push({
+      //     user: ancestor._id,
+      //     title: 'Commission Not Applied',
+      //     message: `Commissions require a minimum balance of $${MIN_PROFIT_BALANCE}.`
+      //   })
+      // }
 
       ancestorId = ancestor.referredBy || null // move up
     }

@@ -47,7 +47,7 @@ exports.claimDailyProfit = async (req, res) => {
 
     const now = new Date()
 
-    // Check cooldown
+    // 🔒 Check cooldown
     if (user.lastDailyClaimAt) {
       const next = new Date(
         user.lastDailyClaimAt.getTime() + CLAIM_COOLDOWN_HOURS * 3600 * 1000
@@ -61,6 +61,14 @@ exports.claimDailyProfit = async (req, res) => {
     }
 
     const base = Number(user.balance) || 0
+
+    // 🚫 New rule: Minimum balance required to claim
+    if (base < 35) {
+      return res.status(400).json({
+        message: 'Your balance must be at least $35 to claim daily profit.'
+      })
+    }
+
     const credit = round2(base * DAILY_PERCENT)
 
     if (credit <= 0) {
@@ -69,29 +77,33 @@ exports.claimDailyProfit = async (req, res) => {
         .json({message: 'Balance is zero; nothing to claim'})
     }
 
-    // Update balance and total profit
+    // 💰 Update balance and total profit
     user.balance = round2(base + credit)
     user.totalProfit = round2((user.totalProfit || 0) + credit)
     user.lastDailyClaimAt = now
     await user.save()
 
-    // Log ProfitHistory
+    // 🧾 Log profit
     await ProfitHistory.create({
       user: user._id,
       type: 'Daily Profit',
-      description: `2% daily profit on balance ${base.toFixed(2)}`,
+      description: `${(DAILY_PERCENT * 100).toFixed(
+        1
+      )}% daily profit on $${base.toFixed(2)}`,
       amount: credit
     })
 
-    // Send notification
+    // 🔔 Send notification
     await Notification.create({
       user: user._id,
       title: 'Daily Profit Claimed 🎉',
-      message: `You received $${credit.toFixed(2)} (2% of your wallet balance).`
+      message: `You received $${credit.toFixed(2)} (${(
+        DAILY_PERCENT * 100
+      ).toFixed(1)}% of your wallet balance).`
     })
 
     res.json({
-      message: 'Daily profit credited',
+      message: 'Daily profit credited successfully.',
       credited: credit,
       balance: user.balance,
       totalProfit: user.totalProfit,

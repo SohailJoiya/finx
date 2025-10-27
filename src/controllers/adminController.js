@@ -1,8 +1,22 @@
+const mongoose = require('mongoose')
 const User = require('../models/User')
 const Deposit = require('../models/Deposit')
 const Withdrawal = require('../models/Withdrawal')
 
-// ---- Admin: Users list (kept with role + filters) ----
+// helper: convert "sort" like "-createdAt,balance" to an object for $sort
+function parseSort(sortStr = '-createdAt') {
+  const sort = {}
+  for (const token of String(sortStr)
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)) {
+    if (token.startsWith('-')) sort[token.slice(1)] = -1
+    else sort[token] = 1
+  }
+  return sort
+}
+
+// ---- Admin: Users list (with ID, name, filters, + teamCount) ----
 exports.getUsers = async (req, res) => {
   try {
     const {
@@ -17,37 +31,87 @@ exports.getUsers = async (req, res) => {
     } = req.query
 
     const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10)
-    const filter = {}
+    const lim = parseInt(limit, 10)
 
+    // base filter: only normal users
+    const filter = {role: 'user'}
+
+    // search by id/name/email
     if (search) {
+      const idSearch = mongoose.Types.ObjectId.isValid(search)
+        ? {_id: new mongoose.Types.ObjectId(search)}
+        : null
       filter.$or = [
+        idSearch,
         {email: {$regex: search, $options: 'i'}},
         {firstName: {$regex: search, $options: 'i'}},
-        {lastName: {$regex: search, $options: 'i'}}
-      ]
+        {lastName: {$regex: search, $options: 'i'}},
+        {fullName: {$regex: search, $options: 'i'}} // if you store it
+      ].filter(Boolean)
     }
+
+    // date range
     if (startDate || endDate) {
       filter.createdAt = {}
       if (startDate) filter.createdAt.$gte = new Date(startDate)
       if (endDate) filter.createdAt.$lte = new Date(endDate)
     }
-    if (role === 'user' || role === 'admin') filter.role = role
-    if (status === 'active') filter.isActive = true
-    if (status === 'inactive') filter.isActive = false
 
+    // optional role override & status
+    if (role === 'user' || role === 'admin') filter.role = role
+    // ⚙️ Status filter
+    if (status === 'active') {
+      filter.balance = {$gt: 0} // ✅ active = has balance
+    }
+    if (status === 'inactive') {
+      filter.balance = {$eq: 0} // ✅ inactive = zero balance
+    }
+
+    // total count for pagination
     const total = await User.countDocuments(filter)
-    const users = await User.find(filter)
-      .select(
-        'firstName lastName email role isActive balance lastLoginAt createdAt'
-      )
-      .sort(sort)
-      .skip(skip)
-      .limit(parseInt(limit, 10))
+
+    // main page results + teamCount in one aggregation
+    const users = await User.aggregate([
+      {$match: filter},
+      {$sort: parseSort(sort)},
+      {$skip: skip},
+      {$limit: lim},
+      {
+        $lookup: {
+          from: 'users',
+          let: {uid: '$_id'},
+          pipeline: [
+            {$match: {$expr: {$eq: ['$referredBy', '$$uid']}}},
+            {$count: 'cnt'}
+          ],
+          as: 'teamArr'
+        }
+      },
+      {
+        $addFields: {
+          teamCount: {$ifNull: [{$arrayElemAt: ['$teamArr.cnt', 0]}, 0]}
+        }
+      },
+      {
+        $project: {
+          firstName: 1,
+          lastName: 1,
+          email: 1,
+          role: 1,
+          user_type: 1,
+          isActive: 1,
+          balance: 1,
+          lastLoginAt: 1,
+          createdAt: 1,
+          teamCount: 1
+        }
+      }
+    ])
 
     res.json({
       total,
       page: parseInt(page, 10),
-      pages: Math.ceil(total / parseInt(limit, 10)),
+      pages: Math.ceil(total / lim),
       results: users
     })
   } catch (err) {
