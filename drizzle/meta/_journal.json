@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1761550417340,
+      "tag": "0000_damp_loners",
+      "breakpoints": true
+    }
+  ]
+}
