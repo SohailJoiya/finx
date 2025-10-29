@@ -40,7 +40,7 @@ app.use('/api', require('./routes/teamRoutes'))
 // Cron
 require('./cron/monthlyRewards')
 
-app.get('/', (req, res) => res.json({status: 'FinX API running'}))
+app.get('/api/test', (req, res) => res.json({status: 'FinX API running'}))
 
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`))

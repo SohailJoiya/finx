@@ -24,7 +24,8 @@ exports.getUsers = async (req, res) => {
       startDate,
       endDate,
       role,
-      status,
+      status, // can be: 'active' (balance>0), 'inactive' (balance==0), 'blocked'
+      blocked, // optional: 'true'|'false'
       page = 1,
       limit = 20,
       sort = '-createdAt'
@@ -32,11 +33,9 @@ exports.getUsers = async (req, res) => {
 
     const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10)
     const lim = parseInt(limit, 10)
+    const filter = {role: 'user'} // only normal users
 
-    // base filter: only normal users
-    const filter = {role: 'user'}
-
-    // search by id/name/email
+    // 🔍 Search by ID/name/email
     if (search) {
       const idSearch = mongoose.Types.ObjectId.isValid(search)
         ? {_id: new mongoose.Types.ObjectId(search)}
@@ -45,68 +44,41 @@ exports.getUsers = async (req, res) => {
         idSearch,
         {email: {$regex: search, $options: 'i'}},
         {firstName: {$regex: search, $options: 'i'}},
-        {lastName: {$regex: search, $options: 'i'}},
-        {fullName: {$regex: search, $options: 'i'}} // if you store it
+        {lastName: {$regex: search, $options: 'i'}}
       ].filter(Boolean)
     }
 
-    // date range
+    // 🗓️ Date range
     if (startDate || endDate) {
       filter.createdAt = {}
       if (startDate) filter.createdAt.$gte = new Date(startDate)
       if (endDate) filter.createdAt.$lte = new Date(endDate)
     }
 
-    // optional role override & status
+    // 🎭 Optional role override
     if (role === 'user' || role === 'admin') filter.role = role
-    // ⚙️ Status filter
-    if (status === 'active') {
-      filter.balance = {$gt: 0} // ✅ active = has balance
-    }
-    if (status === 'inactive') {
-      filter.balance = {$eq: 0} // ✅ inactive = zero balance
+
+    // ⚙️ Balance-based status (keep your existing meaning)
+    if (status === 'active') filter.balance = {$gt: 0}
+    if (status === 'inactive') filter.balance = {$eq: 0}
+
+    // 🚫 Blocked filter
+    // Option A: status=blocked
+    if (status === 'blocked') filter.isActive = false
+    // Option B: blocked=true|false (boolean flag)
+    if (typeof blocked === 'string') {
+      if (blocked.toLowerCase() === 'true') filter.isActive = false
+      if (blocked.toLowerCase() === 'false') filter.isActive = true
     }
 
-    // total count for pagination
     const total = await User.countDocuments(filter)
-
-    // main page results + teamCount in one aggregation
-    const users = await User.aggregate([
-      {$match: filter},
-      {$sort: parseSort(sort)},
-      {$skip: skip},
-      {$limit: lim},
-      {
-        $lookup: {
-          from: 'users',
-          let: {uid: '$_id'},
-          pipeline: [
-            {$match: {$expr: {$eq: ['$referredBy', '$$uid']}}},
-            {$count: 'cnt'}
-          ],
-          as: 'teamArr'
-        }
-      },
-      {
-        $addFields: {
-          teamCount: {$ifNull: [{$arrayElemAt: ['$teamArr.cnt', 0]}, 0]}
-        }
-      },
-      {
-        $project: {
-          firstName: 1,
-          lastName: 1,
-          email: 1,
-          role: 1,
-          user_type: 1,
-          isActive: 1,
-          balance: 1,
-          lastLoginAt: 1,
-          createdAt: 1,
-          teamCount: 1
-        }
-      }
-    ])
+    const users = await User.find(filter)
+      .select(
+        'firstName lastName email role isActive balance lastLoginAt createdAt'
+      )
+      .sort(sort)
+      .skip(skip)
+      .limit(lim)
 
     res.json({
       total,
@@ -232,6 +204,36 @@ exports.getWithdrawals = async (req, res) => {
       pages: Math.ceil(total / limit),
       results: withdrawals
     })
+  } catch (err) {
+    res.status(500).json({message: err.message})
+  }
+}
+
+// PATCH /api/admin/users/:id/block
+exports.blockUser = async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      {isActive: false},
+      {new: true}
+    )
+    if (!user) return res.status(404).json({message: 'User not found'})
+    res.json({message: 'User blocked', user})
+  } catch (err) {
+    res.status(500).json({message: err.message})
+  }
+}
+
+// PATCH /api/admin/users/:id/unblock
+exports.unblockUser = async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      {isActive: true},
+      {new: true}
+    )
+    if (!user) return res.status(404).json({message: 'User not found'})
+    res.json({message: 'User unblocked', user})
   } catch (err) {
     res.status(500).json({message: err.message})
   }

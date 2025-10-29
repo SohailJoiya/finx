@@ -201,6 +201,13 @@ exports.login = async (req, res) => {
     const user = await User.findOne({email})
     if (!user) return res.status(400).json({message: 'Invalid credentials'})
 
+    // 🔒 Blocked users cannot login
+    if (user.isActive === false) {
+      return res
+        .status(403)
+        .json({message: 'Your account is blocked. Contact support.'})
+    }
+
     const ok = await user.comparePassword(password)
     if (!ok) return res.status(400).json({message: 'Invalid credentials'})
 

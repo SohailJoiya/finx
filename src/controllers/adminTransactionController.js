@@ -15,7 +15,7 @@ async function sendNotificationDoc(user, title, message) {
 }
 
 const COMMISSION_RATES = [10, 5, 3, 2, 1] // levels 1..5
-const DEPOSIT_BONUS_PCT = 1
+const DEPOSIT_BONUS_PCT = 10
 const MIN_PROFIT_BALANCE = 35 // ✅ New: minimum balance required to receive any profit
 
 const r2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100
@@ -109,7 +109,7 @@ async function coreApprove(depositId, {useSession} = {}) {
     //   }], {session: sessionOrNull})
     // }
 
-    // 4) Multi-level commissions to upline (apply on EVERY approved deposit)
+    // 4) Multi-level commissions to upline — NOW ONLY ON FIRST APPROVED DEPOSIT
     const notifications = [
       {
         user: user._id,
@@ -123,56 +123,59 @@ async function coreApprove(depositId, {useSession} = {}) {
       }
     ]
 
-    let ancestorId = user.referredBy || null
-    for (
-      let level = 0;
-      level < COMMISSION_RATES.length && ancestorId;
-      level++
-    ) {
-      const pct = COMMISSION_RATES[level]
-      const commission = r2(deposit.amount * (pct / 100))
-      const ancestor = await User.findById(ancestorId).session(sessionOrNull)
-      if (!ancestor) break
+    if (isFirstApproved) {
+      let ancestorId = user.referredBy || null
+      for (
+        let level = 0;
+        level < COMMISSION_RATES.length && ancestorId;
+        level++
+      ) {
+        const pct = COMMISSION_RATES[level]
+        const commission = r2(deposit.amount * (pct / 100))
+        const ancestor = await User.findById(ancestorId).session(sessionOrNull)
+        if (!ancestor) break
 
-      if (commission > 0 && canReceiveProfitBalance(ancestor)) {
-        ancestor.balance = r2((ancestor.balance || 0) + commission)
-        await ancestor.save({session: sessionOrNull})
+        if (commission > 0 && canReceiveProfitBalance(ancestor)) {
+          ancestor.balance = r2((ancestor.balance || 0) + commission)
+          await ancestor.save({session: sessionOrNull})
 
-        await ProfitHistory.create(
-          [
-            {
-              user: ancestor._id,
-              type: 'Referral Bonus',
-              amount: commission,
-              description: `Level ${
-                level + 1
-              } (${pct}%) from ${user._id.toString()} deposit $${r2(
-                deposit.amount
-              )}.`
-            }
-          ],
-          {session: sessionOrNull}
-        )
+          await ProfitHistory.create(
+            [
+              {
+                user: ancestor._id,
+                type: 'Referral Bonus',
+                amount: commission,
+                description: `Level ${
+                  level + 1
+                } (${pct}%) from ${user._id.toString()} FIRST deposit $${r2(
+                  deposit.amount
+                )}.`
+              }
+            ],
+            {session: sessionOrNull}
+          )
 
-        notifications.push({
-          user: ancestor._id,
-          title: 'Referral Bonus Earned 💸',
-          message: `You earned $${commission} (Level ${
-            level + 1
-          }) from your referral’s deposit.`
-        })
+          notifications.push({
+            user: ancestor._id,
+            title: 'Referral Bonus Earned 💸',
+            message: `You earned $${commission} (Level ${
+              level + 1
+            }) from your referral’s FIRST deposit.`
+          })
+        }
+        // (Optional) else notify ancestor they didn't meet min balance:
+        // else {
+        //   notifications.push({
+        //     user: ancestor._id,
+        //     title: 'Commission Not Applied',
+        //     message: `Commissions require a minimum balance of $${MIN_PROFIT_BALANCE}.`
+        //   })
+        // }
+
+        ancestorId = ancestor.referredBy || null // move up
       }
-      // (Optional) else notify ancestor they didn't meet min balance:
-      // else {
-      //   notifications.push({
-      //     user: ancestor._id,
-      //     title: 'Commission Not Applied',
-      //     message: `Commissions require a minimum balance of $${MIN_PROFIT_BALANCE}.`
-      //   })
-      // }
-
-      ancestorId = ancestor.referredBy || null // move up
     }
+    // else: Not first approved deposit → no referral commissions (by design)
 
     // 5) Notifications
     if (notifications.length) {
