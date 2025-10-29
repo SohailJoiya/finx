@@ -10,7 +10,7 @@ const DAILY_PROFIT_AMOUNT = 2.0
 const CLAIM_COOLDOWN_HOURS = 24
 
 function buildReferralLink(code) {
-  const base = 'https://finx2.com'
+  const base = 'http://flareautoearn.com/'
   return `${base}/register?ref=${code}`
 }
 
