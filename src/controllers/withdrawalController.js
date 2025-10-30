@@ -1,6 +1,8 @@
 const Deposit = require('../models/Deposit')
 const Withdrawal = require('../models/Withdrawal')
 const {calculateWithdrawalFee} = require('../utils/calcFees')
+const Notification = require('../models/Notification')
+const User = require('../models/User')
 
 const MIN_BALANCE_FOR_WITHDRAW = 35
 const WITHDRAW_COOLDOWN_HOURS = 24
@@ -98,6 +100,24 @@ exports.requestWithdrawal = async (req, res) => {
       walletName,
       network
     })
+
+    // Find admins
+    const admin = await User.findOne({role: 'admin'}).select('_id name email')
+
+    // Build notification payload
+    const who =
+      `${req.user.firstName} ${req.user.lastName}` || req.user.email || 'A user'
+    const note = {
+      title: 'New Withdrawal Submitted',
+      message: `${who} submitted a withdrawal of ${Number(amount).toFixed(
+        2
+      )}. Txn: ${withdrawal._id || 'N/A'}.`
+    }
+
+    // Create a notification per admin (if none found, you could optionally create a global one with user: null)
+    if (admin._id) {
+      await Notification.create({...note, user: admin._id})
+    }
 
     return res.status(201).json({withdrawal})
   } catch (err) {
