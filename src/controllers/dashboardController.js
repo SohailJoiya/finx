@@ -5,12 +5,13 @@ const Deposit = require('../models/Deposit')
 const Notification = require('../models/Notification')
 const MonthlyReward = require('../models/MonthlyReward')
 const {currentMonthKey} = require('../utils/monthKey')
+require('dotenv').config()
 
 const DAILY_PROFIT_AMOUNT = 2.0
 const CLAIM_COOLDOWN_HOURS = 24
 
 function buildReferralLink(code) {
-  const base = process.env.FRONTEND_URL || 'http://localhost:5000'
+  const base = process.env.FRONTEND_URL || 'https://flareautoearn.com'
   return `${base}/register?ref=${code}`
 }
 
