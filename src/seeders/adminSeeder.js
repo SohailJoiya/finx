@@ -22,7 +22,7 @@ const MONGO = process.env.MONGO_URI || 'mongodb://localhost:27017/finx'
         firstName: 'System',
         lastName: 'Admin',
         email,
-        password: 'flaler@642',
+        password: 'flareAHT@642',
         role: 'admin',
         referralCode: uuidv4().split('-')[0]
       })
