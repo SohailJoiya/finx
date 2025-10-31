@@ -10,7 +10,7 @@ const DAILY_PROFIT_AMOUNT = 2.0
 const CLAIM_COOLDOWN_HOURS = 24
 
 function buildReferralLink(code) {
-  const base = 'http://flareautoearn.com/'
+  const base = process.env.FRONTEND_URL || 'http://localhost:5000'
   return `${base}/register?ref=${code}`
 }
 
