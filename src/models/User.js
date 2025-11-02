@@ -34,6 +34,7 @@ const userSchema = new mongoose.Schema(
     isActive: {type: Boolean, default: true},
 
     lastLoginAt: {type: Date, default: null},
+    timeZone: {type: String, default: 'Asia/Karachi'},
 
     role: {type: String, enum: ['user', 'admin'], default: 'user'}
   },

@@ -15,22 +15,31 @@ exports.getTodayStatus = async (req, res) => {
     const user = await User.findById(req.user._id).select(
       'balance lastDailyClaimAt'
     )
+    if (!user) return res.status(404).json({message: 'User not found'})
+
     const now = new Date()
-    let eligible = true,
-      nextClaimAt = null
+    let eligible = true
+    let nextClaimAt = null
 
     if (user.lastDailyClaimAt) {
-      const next = new Date(
-        user.lastDailyClaimAt.getTime() + CLAIM_COOLDOWN_HOURS * 3600 * 1000
-      )
-      if (now < next) {
+      const last = new Date(user.lastDailyClaimAt)
+      const next = new Date(last.getTime() + CLAIM_COOLDOWN_HOURS * 3600 * 1000)
+
+      // Check if date changed (different calendar day)
+      const dateChanged =
+        now.getFullYear() !== last.getFullYear() ||
+        now.getMonth() !== last.getMonth() ||
+        now.getDate() !== last.getDate()
+
+      // If still within cooldown and same calendar day → not eligible
+      if (!dateChanged && now < next) {
         eligible = false
         nextClaimAt = next.toISOString()
       }
     }
 
     const amount = round2((Number(user.balance) || 0) * DAILY_PERCENT)
-    res.json({eligible, percent: 2, amount, nextClaimAt})
+    res.json({eligible, percent: DAILY_PERCENT * 100, amount, nextClaimAt})
   } catch (err) {
     console.error('getTodayStatus error:', err)
     res.status(500).json({message: err.message})
@@ -47,22 +56,24 @@ exports.claimDailyProfit = async (req, res) => {
 
     const now = new Date()
 
-    // 🔒 Check cooldown
+    // ✅ Only check if date has changed since last claim
     if (user.lastDailyClaimAt) {
-      const next = new Date(
-        user.lastDailyClaimAt.getTime() + CLAIM_COOLDOWN_HOURS * 3600 * 1000
-      )
-      if (now < next) {
+      const last = new Date(user.lastDailyClaimAt)
+      const sameDay =
+        now.getFullYear() === last.getFullYear() &&
+        now.getMonth() === last.getMonth() &&
+        now.getDate() === last.getDate()
+
+      if (sameDay) {
         return res.status(400).json({
-          message: 'Daily profit already claimed',
-          nextClaimAt: next.toISOString()
+          message: 'Daily profit already claimed today. Come back tomorrow.'
         })
       }
     }
 
     const base = Number(user.balance) || 0
 
-    // 🚫 New rule: Minimum balance required to claim
+    // 🚫 Minimum balance rule
     if (base < 35) {
       return res.status(400).json({
         message: 'Your balance must be at least $35 to claim daily profit.'
@@ -70,14 +81,13 @@ exports.claimDailyProfit = async (req, res) => {
     }
 
     const credit = round2(base * DAILY_PERCENT)
-
     if (credit <= 0) {
       return res
         .status(400)
         .json({message: 'Balance is zero; nothing to claim'})
     }
 
-    // 💰 Update balance and total profit
+    // 💰 Update wallet + totals
     user.balance = round2(base + credit)
     user.totalProfit = round2((user.totalProfit || 0) + credit)
     user.lastDailyClaimAt = now
@@ -93,7 +103,7 @@ exports.claimDailyProfit = async (req, res) => {
       amount: credit
     })
 
-    // 🔔 Send notification
+    // 🔔 Notify user
     await Notification.create({
       user: user._id,
       title: 'Daily Profit Claimed 🎉',

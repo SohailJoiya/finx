@@ -23,14 +23,24 @@ exports.getUserDashboard = async (req, res) => {
     )
 
     // --- daily claim status
-    let eligible = true,
-      nextClaimAt = null
+    let eligible = true
+    let nextClaimAt = null
+
     if (user.lastDailyClaimAt) {
-      const next = new Date(
-        user.lastDailyClaimAt.getTime() + CLAIM_COOLDOWN_HOURS * 3600 * 1000
-      )
-      if (new Date() < next) {
+      const last = new Date(user.lastDailyClaimAt)
+      const now = new Date()
+
+      const sameDay =
+        now.getFullYear() === last.getFullYear() &&
+        now.getMonth() === last.getMonth() &&
+        now.getDate() === last.getDate()
+
+      if (sameDay) {
         eligible = false
+        // nextClaimAt = start of next day (midnight)
+        const next = new Date(now)
+        next.setDate(now.getDate() + 1)
+        next.setHours(0, 0, 0, 0)
         nextClaimAt = next.toISOString()
       }
     }
