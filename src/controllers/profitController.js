@@ -1,6 +1,8 @@
 const User = require('../models/User')
 const ProfitHistory = require('../models/ProfitHistory')
 const Notification = require('../models/Notification')
+const {startOfDay, addDays} = require('date-fns')
+const {utcToZonedTime, zonedTimeToUtc} = require('date-fns-tz')
 
 const CLAIM_COOLDOWN_HOURS = 24
 const DAILY_PERCENT = 0.02 // 2%
@@ -89,7 +91,7 @@ exports.claimDailyProfit = async (req, res) => {
     }
 
     // Calculate credit (keep your existing constants/rounding)
-    const credit = Number((base * DAILY_PROFIT_AMOUNT) / 100).toFixed(2) // if DAILY_PROFIT_AMOUNT is 2.0 (%)
+    const credit = Number((base * DAILY_PERCENT) / 100).toFixed(2) // if DAILY_PROFIT_AMOUNT is 2.0 (%)
     // ... persist ProfitHistory, update user.balance/totalProfit as you already do
 
     user.lastDailyClaimAt = nowUtc
