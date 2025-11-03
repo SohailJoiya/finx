@@ -7,6 +7,10 @@ const MonthlyReward = require('../models/MonthlyReward')
 const {currentMonthKey} = require('../utils/monthKey')
 require('dotenv').config()
 
+// at top of the file once:
+const {startOfDay, addDays} = require('date-fns')
+const {utcToZonedTime, zonedTimeToUtc} = require('date-fns-tz')
+
 const DAILY_PROFIT_AMOUNT = 2.0
 const CLAIM_COOLDOWN_HOURS = 24
 
@@ -19,33 +23,35 @@ exports.getUserDashboard = async (req, res) => {
   try {
     const userId = req.user._id
     const user = await User.findById(userId).select(
-      'firstName lastName email balance totalProfit lastDailyClaimAt referralCode wallets role'
+      'firstName lastName email balance totalProfit lastDailyClaimAt referralCode wallets role timezone timeZone'
     )
 
-    // --- daily claim status
+    // --- daily claim status (TZ-aware, resets at user's local midnight)
     let eligible = true
     let nextClaimAt = null
 
+    const userTz = user?.timezone || user?.timeZone || 'Asia/Karachi'
+    const nowUtc = new Date()
+    const nowInUserTz = utcToZonedTime(nowUtc, userTz)
+
+    // compute next local midnight and expose as UTC ISO (for countdowns)
+    const startOfTomorrowInUserTz = startOfDay(addDays(nowInUserTz, 1))
+    nextClaimAt = zonedTimeToUtc(startOfTomorrowInUserTz, userTz).toISOString()
+
     if (user.lastDailyClaimAt) {
-      const last = new Date(user.lastDailyClaimAt)
-      const now = new Date()
+      const lastInUserTz = utcToZonedTime(
+        new Date(user.lastDailyClaimAt),
+        userTz
+      )
+      const claimedSameLocalDay =
+        nowInUserTz.getFullYear() === lastInUserTz.getFullYear() &&
+        nowInUserTz.getMonth() === lastInUserTz.getMonth() &&
+        nowInUserTz.getDate() === lastInUserTz.getDate()
 
-      const sameDay =
-        now.getFullYear() === last.getFullYear() &&
-        now.getMonth() === last.getMonth() &&
-        now.getDate() === last.getDate()
-
-      if (sameDay) {
-        eligible = false
-        // nextClaimAt = start of next day (midnight)
-        const next = new Date(now)
-        next.setDate(now.getDate() + 1)
-        next.setHours(0, 0, 0, 0)
-        nextClaimAt = next.toISOString()
-      }
+      if (claimedSameLocalDay) eligible = false
     }
 
-    // --- today's profit
+    // --- today's profit (still server-midnight-based)
     const start = new Date()
     start.setHours(0, 0, 0, 0)
     const todayAgg = await ProfitHistory.aggregate([
@@ -67,11 +73,10 @@ exports.getUserDashboard = async (req, res) => {
     ])
     const totalInvestment = investAgg.length ? investAgg[0].sum : 0
 
-    // --- ALL first-level directs (IDs + balance sum + count)
+    // --- first-level directs
     const directs = await User.find({referredBy: userId})
       .select('_id balance firstName lastName')
       .lean()
-
     const teamSize = directs.length
     const directChildrenBalance = directs.reduce(
       (s, d) => s + (d.balance || 0),
@@ -79,7 +84,7 @@ exports.getUserDashboard = async (req, res) => {
     )
     const directIds = directs.map(d => d._id)
 
-    // --- withdrawals: parent + ALL directs (Approved)
+    // --- withdrawals: parent + directs (Approved)
     let directChildrenWithdrawal = 0
     if (directIds.length) {
       const dirWithAgg = await Withdrawal.aggregate([
@@ -88,21 +93,20 @@ exports.getUserDashboard = async (req, res) => {
       ])
       directChildrenWithdrawal = dirWithAgg.length ? dirWithAgg[0].sum : 0
     }
-
     const parentPlusAllDirectsWithdrawal =
       totalWithdrawal + directChildrenWithdrawal
 
-    // --- investments: parent approved deposits + SUM(balances of ALL directs)
+    // --- investments: parent deposits + directs’ balances
     const parentPlusAllDirectsInvestment =
       totalInvestment + directChildrenBalance
 
-    // --- profit history (latest 20)
+    // --- profit history (✅ latest 5 only)
     const profitHistory = await ProfitHistory.find({user: userId})
       .sort({createdAt: -1})
-      .limit(20)
+      .limit(5)
       .select('createdAt type description amount')
 
-    // --- recent notifications (10)
+    // --- notifications (latest 10)
     const notifications = await Notification.find({
       $or: [{user: userId}, {user: null}]
     })
@@ -123,6 +127,7 @@ exports.getUserDashboard = async (req, res) => {
       progressSum: (mr?.totalInvestment || 0) + (mr?.teamInvestment || 0)
     }
 
+    // --- final response
     res.json({
       user: {
         id: userId,
@@ -146,14 +151,12 @@ exports.getUserDashboard = async (req, res) => {
       earningsSummary: {
         todaysProfit,
         totalProfit: user.totalProfit || 0,
-        totalWithdrawal, // parent's only (kept for backward compat)
+        totalWithdrawal,
         teamSize
       },
       networkStats: {
         teamSize,
-        // ✅ withdrawals now include ALL directs + parent (Approved)
         withdrawal: parentPlusAllDirectsWithdrawal,
-        // ✅ investments: parent approved deposits + SUM of ALL directs' balances
         investment: parentPlusAllDirectsInvestment,
         _details: {
           parent: {
@@ -164,7 +167,6 @@ exports.getUserDashboard = async (req, res) => {
             count: teamSize,
             sumBalances: directChildrenBalance,
             withdrawalsApproved: directChildrenWithdrawal,
-            // optional: list each direct for debugging
             list: directs.map(d => ({
               id: d._id,
               name: `${d.firstName || ''} ${d.lastName || ''}`.trim(),
@@ -173,7 +175,7 @@ exports.getUserDashboard = async (req, res) => {
           }
         }
       },
-      profitHistory,
+      profitHistory, // only 5 latest
       notifications,
       monthlyReward
     })

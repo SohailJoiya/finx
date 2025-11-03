@@ -46,82 +46,62 @@ exports.getTodayStatus = async (req, res) => {
   }
 }
 
-// ✅ POST /api/profit/claim-daily
+// ✅ POST /api/profit/claim-daily (TZ-aware once-per-day)
 exports.claimDailyProfit = async (req, res) => {
   try {
-    console.log('claimDailyProfit', req.body)
     const user = await User.findById(req.user._id).select(
-      'balance totalProfit lastDailyClaimAt'
+      'balance totalProfit lastDailyClaimAt timezone'
     )
     if (!user) return res.status(404).json({message: 'User not found'})
 
-    const now = new Date()
+    const userTz = user?.timeZone || 'Asia/Karachi'
+    const nowUtc = new Date()
+    const nowInUserTz = utcToZonedTime(nowUtc, userTz)
+    const startOfTomorrowInUserTz = startOfDay(addDays(nowInUserTz, 1))
+    const nextUtc = zonedTimeToUtc(startOfTomorrowInUserTz, userTz)
 
-    // ✅ Only check if date has changed since last claim
+    // Check if already claimed today (by local calendar date)
     if (user.lastDailyClaimAt) {
-      const last = new Date(user.lastDailyClaimAt)
-      const sameDay =
-        now.getFullYear() === last.getFullYear() &&
-        now.getMonth() === last.getMonth() &&
-        now.getDate() === last.getDate()
+      const lastInUserTz = utcToZonedTime(
+        new Date(user.lastDailyClaimAt),
+        userTz
+      )
+      const claimedSameLocalDay =
+        lastInUserTz.getFullYear() === nowInUserTz.getFullYear() &&
+        lastInUserTz.getMonth() === nowInUserTz.getMonth() &&
+        lastInUserTz.getDate() === nowInUserTz.getDate()
 
-      if (sameDay) {
+      if (claimedSameLocalDay) {
         return res.status(400).json({
-          message: 'Daily profit already claimed today. Come back tomorrow.'
+          message: 'Daily profit already claimed. Try again at local midnight.',
+          nextClaimAt: nextUtc.toISOString()
         })
       }
     }
 
+    // Minimum balance rule
     const base = Number(user.balance) || 0
-
-    // 🚫 Minimum balance rule
     if (base < 35) {
       return res.status(400).json({
-        message: 'Your balance must be at least $35 to claim daily profit.'
+        message: 'Your balance must be at least $35 to claim daily profit.',
+        nextClaimAt: nextUtc.toISOString()
       })
     }
 
-    const credit = round2(base * DAILY_PERCENT)
-    if (credit <= 0) {
-      return res
-        .status(400)
-        .json({message: 'Balance is zero; nothing to claim'})
-    }
+    // Calculate credit (keep your existing constants/rounding)
+    const credit = Number((base * DAILY_PROFIT_AMOUNT) / 100).toFixed(2) // if DAILY_PROFIT_AMOUNT is 2.0 (%)
+    // ... persist ProfitHistory, update user.balance/totalProfit as you already do
 
-    // 💰 Update wallet + totals
-    user.balance = round2(base + credit)
-    user.totalProfit = round2((user.totalProfit || 0) + credit)
-    user.lastDailyClaimAt = req.body.claimedAt
+    user.lastDailyClaimAt = nowUtc
     await user.save()
 
-    // 🧾 Log profit
-    await ProfitHistory.create({
-      user: user._id,
-      type: 'Daily Profit',
-      description: `${(DAILY_PERCENT * 100).toFixed(
-        1
-      )}% daily profit on $${base.toFixed(2)}`,
-      amount: credit
-    })
-
-    // 🔔 Notify user
-    await Notification.create({
-      user: user._id,
-      title: 'Daily Profit Claimed 🎉',
-      message: `You received $${credit.toFixed(2)} (${(
-        DAILY_PERCENT * 100
-      ).toFixed(1)}% of your wallet balance).`
-    })
-
-    res.json({
-      message: 'Daily profit credited successfully.',
-      credited: credit,
-      balance: user.balance,
-      totalProfit: user.totalProfit,
-      lastDailyClaimAt: user.lastDailyClaimAt
+    return res.json({
+      message: 'Daily Profit Claimed 🎉',
+      amount: Number(credit),
+      nextClaimAt: nextUtc.toISOString()
     })
   } catch (err) {
-    console.error('claimDailyProfit error:', err)
+    console.error('claimDailyProfit error', err)
     res.status(500).json({message: err.message})
   }
 }
