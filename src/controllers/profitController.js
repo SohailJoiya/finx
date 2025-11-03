@@ -49,6 +49,7 @@ exports.getTodayStatus = async (req, res) => {
 // ✅ POST /api/profit/claim-daily
 exports.claimDailyProfit = async (req, res) => {
   try {
+    console.log('claimDailyProfit', req.body)
     const user = await User.findById(req.user._id).select(
       'balance totalProfit lastDailyClaimAt'
     )
@@ -90,7 +91,7 @@ exports.claimDailyProfit = async (req, res) => {
     // 💰 Update wallet + totals
     user.balance = round2(base + credit)
     user.totalProfit = round2((user.totalProfit || 0) + credit)
-    user.lastDailyClaimAt = now
+    user.lastDailyClaimAt = req.body.claimedAt
     await user.save()
 
     // 🧾 Log profit
