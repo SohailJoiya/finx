@@ -57,20 +57,20 @@ exports.claimDailyProfit = async (req, res) => {
 
     const now = new Date()
 
-    //    // ✅ Only check if date has changed since last claim
-    //    if (user.lastDailyClaimAt) {
-    //      const last = new Date(user.lastDailyClaimAt)
-    //      const sameDay =
-    //        now.getFullYear() === last.getFullYear() &&
-    //        now.getMonth() === last.getMonth() &&
-    //        now.getDate() === last.getDate()
-    //
-    //      if (sameDay) {
-    //        return res.status(400).json({
-    //          message: 'Daily profit already claimed today. Come back tomorrow.'
-    //        })
-    //      }
-    //    }
+    // ✅ Only check if date has changed since last claim
+    if (user.lastDailyClaimAt) {
+      const last = new Date(user.lastDailyClaimAt)
+      const sameDay =
+        now.getFullYear() === last.getFullYear() &&
+        now.getMonth() === last.getMonth() &&
+        now.getDate() === last.getDate()
+
+      if (sameDay) {
+        return res.status(400).json({
+          message: 'Daily profit already claimed today. Come back tomorrow.'
+        })
+      }
+    }
 
     const base = Number(user.balance) || 0
 
