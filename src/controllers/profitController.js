@@ -91,16 +91,45 @@ exports.claimDailyProfit = async (req, res) => {
     }
 
     // Calculate credit (keep your existing constants/rounding)
-    const credit = Number((base * DAILY_PERCENT) / 100).toFixed(2) // if DAILY_PROFIT_AMOUNT is 2.0 (%)
-    // ... persist ProfitHistory, update user.balance/totalProfit as you already do
+    const credit = round2(base * DAILY_PERCENT)
+    if (credit <= 0) {
+      return res
+        .status(400)
+        .json({message: 'Balance is zero; nothing to claim'})
+    }
+
+    // 💰 Update wallet + totals
+    user.balance = round2(base + credit)
+    user.totalProfit = round2((user.totalProfit || 0) + credit)
 
     user.lastDailyClaimAt = nowUtc
-    await user.save()
 
-    return res.json({
-      message: 'Daily Profit Claimed 🎉',
-      amount: Number(credit),
-      nextClaimAt: nextUtc.toISOString()
+    await user.save()
+    // 🧾 Log profit
+    await ProfitHistory.create({
+      user: user._id,
+      type: 'Daily Profit',
+      description: `${(DAILY_PERCENT * 100).toFixed(
+        1
+      )}% daily profit on $${base.toFixed(2)}`,
+      amount: credit
+    })
+
+    // 🔔 Notify user
+    await Notification.create({
+      user: user._id,
+      title: 'Daily Profit Claimed 🎉',
+      message: `You received $${credit.toFixed(2)} (${(
+        DAILY_PERCENT * 100
+      ).toFixed(1)}% of your wallet balance).`
+    })
+
+    res.json({
+      message: 'Daily profit credited successfully.',
+      credited: credit,
+      balance: user.balance,
+      totalProfit: user.totalProfit,
+      lastDailyClaimAt: user.lastDailyClaimAt
     })
   } catch (err) {
     console.error('claimDailyProfit error', err)
