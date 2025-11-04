@@ -379,8 +379,6 @@ exports.verifyResetOTP = async (req, res) => {
 
     const user = await User.findOne({passwordResetOTP: otp})
 
-    console.log('verifyResetOTP', user._id)
-
     if (!user._id) {
       return res.status(400).json({message: 'Invalid or expired OTP.'})
     }
