@@ -13,6 +13,16 @@ const userSchema = new mongoose.Schema(
     email: {type: String, required: true, unique: true},
     password: {type: String, required: true},
 
+    // Email verification
+    isVerified: {type: Boolean, default: false},
+    verificationToken: {type: String},
+    verificationExpires: {type: Date},
+
+    // Password reset
+    passwordResetToken: {type: String},
+    passwordResetOTP: {type: String},
+    passwordResetExpires: {type: Date},
+
     referralCode: {type: String, unique: true, sparse: true},
     referredBy: {
       type: mongoose.Schema.Types.ObjectId,
