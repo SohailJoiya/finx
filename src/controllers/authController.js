@@ -146,60 +146,6 @@ async function buildDashboard(user) {
   }
 }
 
-/** POST /api/auth/register
- * body: { firstName, lastName, email, password, ref? }
- * Creates user, resolves ref to parent, sets referredBy, generates referralCode if missing,
- * returns JWT + dashboard payload (same shape as login).
- */
-//exports.register = async (req, res) => {
-//  try {
-//    const {firstName, lastName, email, password, ref} = req.body
-//
-//    // basic validation
-//    if (!firstName || !lastName || !email || !password) {
-//      return res.status(400).json({message: 'Missing required fields'})
-//    }
-//
-//    // already exists?
-//    const exists = await User.findOne({email})
-//    if (exists)
-//      return res.status(400).json({message: 'Email already registered'})
-//
-//    // resolve referredBy (if ref provided)
-//    let referredBy = null
-//    if (ref) {
-//      referredBy = await resolveRefToUserId(ref)
-//    }
-//
-//    // create user
-//    const newUser = await User.create({
-//      firstName,
-//      lastName,
-//      email,
-//      password, // assume pre-save hash via user model
-//      role: 'user',
-//      referredBy,
-//      balance: 0,
-//      totalProfit: 0
-//    })
-//
-//    // ensure referralCode exists
-//    if (!newUser.referralCode) {
-//      newUser.referralCode = generateReferralCodeSeed(newUser._id)
-//      await newUser.save()
-//    }
-//
-//    // token + dashboard
-//    const token = generateToken({id: newUser._id, role: newUser.role})
-//    const dashboard = await buildDashboard(newUser)
-//
-//    return res.status(201).json({token, ...dashboard})
-//  } catch (err) {
-//    console.error('register error:', err)
-//    return res.status(500).json({message: err.message})
-//  }
-//}
-
 /** POST /api/auth/login
  * body: { email, password }
  * Returns JWT + full dashboard payload
@@ -253,17 +199,24 @@ exports.login = async (req, res) => {
 // --- Email Verification: Register
 exports.register = async (req, res) => {
   try {
-    const {firstName, lastName, email, password, ref} = req.body
+    console.log(req.body)
+    const {firstName, lastName, email, password, referralCode} = req.body
     const exists = await User.findOne({email})
     if (exists)
       return res.status(400).json({message: 'Email already registered'})
+    let referredBy = null
+    if (referralCode) {
+      referredBy = await resolveRefToUserId(referralCode)
+    }
 
-    const user = new User({firstName, lastName, email, password, ref})
+    const user = new User({firstName, lastName, email, password, referredBy})
     // create verification token (hashed for DB, plain for link)
     const raw = crypto.randomBytes(32).toString('hex')
     const hash = crypto.createHash('sha256').update(raw).digest('hex')
     user.verificationToken = hash
     user.verificationExpires = new Date(Date.now() + 24 * 3600 * 1000)
+    // resolve referredBy (if ref provided)
+
     await user.save()
 
     // Send verification email
