@@ -52,7 +52,7 @@ exports.getTodayStatus = async (req, res) => {
 exports.claimDailyProfit = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select(
-      'balance totalProfit lastDailyClaimAt timezone'
+      'balance totalProfit lastDailyClaimAt timeZone user_level'
     )
     if (!user) return res.status(404).json({message: 'User not found'})
 
@@ -62,7 +62,7 @@ exports.claimDailyProfit = async (req, res) => {
     const startOfTomorrowInUserTz = startOfDay(addDays(nowInUserTz, 1))
     const nextUtc = zonedTimeToUtc(startOfTomorrowInUserTz, userTz)
 
-    // Check if already claimed today (by local calendar date)
+    // already claimed today?
     if (user.lastDailyClaimAt) {
       const lastInUserTz = utcToZonedTime(
         new Date(user.lastDailyClaimAt),
@@ -90,26 +90,35 @@ exports.claimDailyProfit = async (req, res) => {
       })
     }
 
-    // Calculate credit (keep your existing constants/rounding)
-    const credit = round2(base * DAILY_PERCENT)
+    // 💡 Level-based percent
+    const LEVEL_PERCENTS = {1: 0.02, 2: 0.025, 3: 0.03, 4: 0.035, 5: 0.04}
+    const dailyPercent = LEVEL_PERCENTS[user.user_level] || 0
+
+    // If level 0 or invalid -> block claim
+    if (dailyPercent === 0) {
+      return res.status(400).json({
+        message: 'Your level must be at least 1 to claim daily profit.',
+        nextClaimAt: nextUtc.toISOString()
+      })
+    }
+
+    // Calculate credit using level percent
+    const credit = round2(base * dailyPercent)
     if (credit <= 0) {
-      return res
-        .status(400)
-        .json({message: 'Balance is zero; nothing to claim'})
+      return res.status(400).json({message: 'Nothing to claim for your level.'})
     }
 
     // 💰 Update wallet + totals
     user.balance = round2(base + credit)
     user.totalProfit = round2((user.totalProfit || 0) + credit)
-
     user.lastDailyClaimAt = nowUtc
-
     await user.save()
+
     // 🧾 Log profit
     await ProfitHistory.create({
       user: user._id,
       type: 'Daily Profit',
-      description: `${(DAILY_PERCENT * 100).toFixed(
+      description: `${(dailyPercent * 100).toFixed(
         1
       )}% daily profit on $${base.toFixed(2)}`,
       amount: credit
@@ -120,12 +129,14 @@ exports.claimDailyProfit = async (req, res) => {
       user: user._id,
       title: 'Daily Profit Claimed 🎉',
       message: `You received $${credit.toFixed(2)} (${(
-        DAILY_PERCENT * 100
+        dailyPercent * 100
       ).toFixed(1)}% of your wallet balance).`
     })
 
     res.json({
       message: 'Daily profit credited successfully.',
+      level: user.user_level,
+      percent: dailyPercent,
       credited: credit,
       balance: user.balance,
       totalProfit: user.totalProfit,

@@ -41,9 +41,11 @@ app.use('/api/rewards', require('./routes/rewardRoutes'))
 app.use('/api/dashboard', require('./routes/dashboardRoutes'))
 // app.js or index.js
 app.use('/api', require('./routes/teamRoutes'))
+app.use('/api/cron', require('./routes/cronRoutes'))
 
 // Cron
 require('./cron/monthlyRewards')
+require('./cron/userLevelUpdate')
 
 app.get('/api/test', (req, res) => res.json({status: 'FinX API running'}))
 

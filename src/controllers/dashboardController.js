@@ -23,7 +23,7 @@ exports.getUserDashboard = async (req, res) => {
   try {
     const userId = req.user._id
     const user = await User.findById(userId).select(
-      'firstName lastName email balance totalProfit lastDailyClaimAt referralCode wallets role timezone timeZone'
+      'firstName lastName email balance user_level totalProfit lastDailyClaimAt referralCode wallets role timezone timeZone'
     )
 
     // --- daily claim status (TZ-aware, resets at user's local midnight)
@@ -137,7 +137,8 @@ exports.getUserDashboard = async (req, res) => {
         role: user.role,
         balance: user.balance,
         totalProfit: user.totalProfit || 0,
-        wallets: user.wallets || []
+        wallets: user.wallets || [],
+        user_level: user.user_level
       },
       referral: {
         code: user.referralCode,

@@ -39,6 +39,8 @@ const userSchema = new mongoose.Schema(
 
     rank: {type: String, default: 'Starter'},
     rankAchievedAt: {type: Date, default: null},
+    user_level: {type: Number, default: 1},
+    levelUpdateHoldUntil: {type: Date},
 
     phone: {type: String, default: ''},
     isActive: {type: Boolean, default: true},
