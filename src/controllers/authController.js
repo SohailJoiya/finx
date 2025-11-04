@@ -199,7 +199,6 @@ exports.login = async (req, res) => {
 // --- Email Verification: Register
 exports.register = async (req, res) => {
   try {
-    console.log(req.body)
     const {firstName, lastName, email, password, referralCode} = req.body
     const exists = await User.findOne({email})
     if (exists)
