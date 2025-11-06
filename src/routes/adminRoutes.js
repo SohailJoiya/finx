@@ -6,6 +6,11 @@ const {protectAdmin} = require('../middleware/adminMiddleware')
 router.get('/users', protectAdmin, adminController.getUsers)
 router.put('/users/:id/block', protectAdmin, adminController.blockUser)
 router.put('/users/:id/unblock', protectAdmin, adminController.unblockUser)
+router.get(
+  '/dashboard-stats',
+  protectAdmin,
+  adminController.getAdminDashboardStats
+)
 
 router.get('/deposits', protectAdmin, adminController.getDeposits)
 router.get('/withdrawals', protectAdmin, adminController.getWithdrawals)

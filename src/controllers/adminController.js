@@ -238,3 +238,86 @@ exports.unblockUser = async (req, res) => {
     res.status(500).json({message: err.message})
   }
 }
+
+// GET /api/admin/stats
+exports.getAdminDashboardStats = async (req, res) => {
+  try {
+    // 🔐 Require admin
+    const role = (req.admin?.role || '').toLowerCase()
+    if (role !== 'admin') {
+      return res.status(403).json({message: 'Forbidden: admin only'})
+    }
+
+    // Helper: aggregate by status (works for numeric or string amounts)
+    const aggByStatus = status => [
+      {$match: {status}},
+      {
+        $addFields: {
+          amt: {
+            $cond: [{$isNumber: '$amount'}, '$amount', {$toDouble: '$amount'}]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          count: {$sum: 1},
+          total: {$sum: '$amt'}
+        }
+      }
+    ]
+
+    // Run in parallel for performance
+    const [
+      depApprovedAgg,
+      depPendingAgg,
+      wdApprovedAgg,
+      wdPendingAgg,
+      totalUsersNonAdmin,
+      activeUsers,
+      inactiveUsers
+    ] = await Promise.all([
+      Deposit.aggregate(aggByStatus('Approved')),
+      Deposit.aggregate(aggByStatus('Pending')),
+      Withdrawal.aggregate(aggByStatus('Approved')),
+      Withdrawal.aggregate(aggByStatus('Pending')),
+      User.countDocuments({role: {$ne: 'admin'}}),
+      User.countDocuments({role: {$ne: 'admin'}, balance: {$gt: 35}}),
+      User.countDocuments({role: {$ne: 'admin'}, balance: {$lt: 35}})
+    ])
+
+    // Helper to clean up aggregate results
+    const extract = arr => {
+      const a = arr?.[0]
+      return {
+        count: a?.count || 0,
+        totalAmount: Number((a?.total || 0).toFixed(2))
+      }
+    }
+
+    const depositsApproved = extract(depApprovedAgg)
+    const depositsPending = extract(depPendingAgg)
+    const withdrawalsApproved = extract(wdApprovedAgg)
+    const withdrawalsPending = extract(wdPendingAgg)
+
+    // ✅ Final response
+    return res.json({
+      deposits: {
+        approved: depositsApproved, // { count, totalAmount }
+        pending: depositsPending
+      },
+      withdrawals: {
+        approved: withdrawalsApproved,
+        pending: withdrawalsPending
+      },
+      users: {
+        totalUser: totalUsersNonAdmin,
+        activeCount: activeUsers, // balance > 35
+        inactiveCount: inactiveUsers // balance < 35
+      }
+    })
+  } catch (err) {
+    console.error('getAdminDashboardStats error:', err)
+    res.status(500).json({message: 'Server error'})
+  }
+}

@@ -185,10 +185,15 @@ exports.login = async (req, res) => {
     if (!user.referralCode) {
       user.referralCode = generateReferralCodeSeed(user._id) // backfill if older account
     }
-    await user.save()
+    let loginUser = await user.save()
 
     const token = generateToken({id: user._id, role: user.role})
-    const dashboard = await buildDashboard(user)
+    let dashboard = {}
+    if (user.role == 'user') {
+      dashboard = await buildDashboard(user)
+    } else {
+      dashboard.user = loginUser
+    }
     res.json({token, ...dashboard})
   } catch (err) {
     console.error('login error:', err)
