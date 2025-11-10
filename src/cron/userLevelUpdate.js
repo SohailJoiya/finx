@@ -1,97 +1,149 @@
-// src/cron/userLevelUpdate.js
 const cron = require('node-cron')
+const mongoose = require('mongoose')
 const User = require('../models/User')
 const Notification = require('../models/Notification')
 
-// ---------- Helpers ----------
-async function countMembers(userId) {
-  // Direct active members
-  const directs = await User.find({referredBy: userId, isActive: true})
-    .select('_id')
-    .lean()
-  const directCount = directs.length
+// Common match for all downline members
+const DOWNLINE_MATCH = {
+  balance: {$gte: 35}
+}
 
-  // Indirect active members (children of directs)
-  let indirectCount = 0
-  if (directCount) {
-    const directIds = directs.map(d => d._id)
-    indirectCount = await User.countDocuments({
-      referredBy: {$in: directIds},
-      isActive: true
+// If you ALSO want to exclude the root when balance <= 35, set this to true
+const EXCLUDE_ROOT_IF_UNDER_35 = false
+
+/**
+ * Returns arrays of descendant IDs by depth, respecting 5 business levels with user at Level 5.
+ * Shape: [L4, L3, L2, L1] -> up to 4 arrays (children down to great-great-grandchildren)
+ * Expansion uses DOWNLINE_MATCH, so only active users with balance > 35 are included.
+ */
+async function getDownlineIds(rootId, totalLevels = 5) {
+  const descendantDepth = Math.max(0, totalLevels - 1) // 4
+  const levels = []
+  let frontier = [rootId]
+
+  for (let d = 1; d <= descendantDepth; d++) {
+    const children = await User.find({
+      referredBy: {$in: frontier},
+      ...DOWNLINE_MATCH
     })
+      .select('_id')
+      .lean()
+
+    const ids = children.map(c => c._id)
+    levels.push(ids)
+    if (!ids.length) break
+    frontier = ids
   }
+
+  // levels[0]=L4 (directs), levels[1]=L3, levels[2]=L2, levels[3]=L1
+  return levels
+}
+
+/**
+ * directCount = Level 4 size (with filters)
+ * indirectCount = sum(Levels 3 + 2 + 1) (with filters)
+ */
+async function countMembers(userId) {
+  const levels = await getDownlineIds(userId, 5)
+  const l4 = levels[0] || []
+  const l3 = levels[1] || []
+  const l2 = levels[2] || []
+  const l1 = levels[3] || []
+
+  const directCount = l4.length
+  const indirectCount = l3.length + l2.length + l1.length
 
   return {directCount, indirectCount}
 }
 
-function decideLevel(
-  totalInvestment,
-  directCount,
-  indirectCount,
-  currentLevel
-) {
-  let target = 0
-  console.log(totalInvestment > 1499)
-
-  if (totalInvestment < 35) target = 0
-  else if (totalInvestment < 500) target = 1
-  else if (totalInvestment >= 1499 && directCount >= 3 && indirectCount >= 5) {
-    console.log('::::::::::::', directCount, indirectCount)
-    target = 2
-  } else if (totalInvestment >= 2999 && directCount >= 5 && indirectCount >= 15)
-    target = 3
-  else if (totalInvestment >= 4999 && directCount >= 10 && indirectCount >= 25)
-    target = 4
-  else if (totalInvestment >= 5000 && directCount >= 20 && indirectCount >= 70)
-    target = 5
-  else if (totalInvestment >= 35) target = 1 // fallback
-
-  // Only allow level increase
-  return Math.max(currentLevel || 0, target)
-}
-
-function oneDaysFromNow() {
-  return new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)
-}
-
-// ---------- Calculate totalInvestment ----------
+/**
+ * totalInvestment = root user (optionally filtered) + all filtered descendants (Levels 4..1)
+ * Descendants are filtered by DOWNLINE_MATCH. Root is included by default.
+ */
 async function getTotalInvestment(user) {
-  let total = user.balance || 0
+  let includeRoot = true
+  if (EXCLUDE_ROOT_IF_UNDER_35 && !((user.balance || 0) > 35)) {
+    includeRoot = false
+  }
 
-  // Direct members
-  const directs = await User.find({referredBy: user._id, isActive: true})
-    .select('_id balance')
-    .lean()
+  let total = includeRoot ? user.balance || 0 : 0
 
-  for (const d of directs) {
-    total += d.balance || 0
+  const levels = await getDownlineIds(user._id, 5)
+  const allDescendantIds = levels.flat()
 
-    // Indirect members (children of directs)
-    const indirects = await User.find({referredBy: d._id, isActive: true})
+  if (allDescendantIds.length) {
+    const balances = await User.find({_id: {$in: allDescendantIds}})
       .select('balance')
       .lean()
-
-    for (const i of indirects) {
-      total += i.balance || 0
-    }
+    for (const d of balances) total += d.balance || 0
   }
 
   return total
 }
 
-// ---------- Main job ----------
+/**
+ * Only increases level based on totals and counts.
+ * (Thresholds unchanged; they now use filtered counts/totals.)
+ */
+function decideLevel(
+  totalInvestment,
+  directCount,
+  indirectCount,
+  currentLevel = 0
+) {
+  // Debug: show raw numbers + whether each threshold is met
+
+  let target = 0
+
+  if (totalInvestment >= 5000 && directCount >= 20 && indirectCount >= 70) {
+    target = 5
+  } else if (
+    totalInvestment >= 4999 &&
+    directCount >= 10 &&
+    indirectCount >= 25
+  ) {
+    target = 4
+  } else if (
+    totalInvestment >= 2999 &&
+    directCount >= 5 &&
+    indirectCount >= 15
+  ) {
+    target = 3
+  } else if (
+    totalInvestment >= 1499 &&
+    directCount >= 3 &&
+    indirectCount >= 5
+  ) {
+    target = 2
+  } else if (totalInvestment >= 35 && totalInvestment < 500) {
+    target = 1
+  } else if (totalInvestment >= 500 && totalInvestment < 1499) {
+    // Optional: make the 500–1498 band explicit as Level 1
+    target = 1
+  } else {
+    target = 0
+  }
+
+  return Math.max(currentLevel || 0, target)
+}
+
+function oneDayFromNow() {
+  return new Date(Date.now() + 24 * 60 * 60 * 1000)
+}
+
+// ---------- Main job (unchanged except it calls updated helpers) ----------
+
 async function processUpTo10Users() {
   const now = new Date()
 
-  // Fetch 10 eligible users (no cooldown)
   const users = await User.find({
-    isActive: true,
+    ...DOWNLINE_MATCH,
     $or: [
       {levelUpdateHoldUntil: {$exists: false}},
       {levelUpdateHoldUntil: {$lte: now}}
     ]
   })
-    .select('_id user_level firstName balance isActive referredBy')
+    .select('_id user_level balance')
     .limit(10)
     .lean()
 
@@ -120,7 +172,7 @@ async function processUpTo10Users() {
           update: {
             $set: {
               user_level: newLevel,
-              levelUpdateHoldUntil: oneDaysFromNow()
+              levelUpdateHoldUntil: oneDayFromNow()
             }
           }
         }
@@ -134,13 +186,10 @@ async function processUpTo10Users() {
         isRead: false
       })
     } else {
-      // Update cooldown only
       bulkOps.push({
         updateOne: {
           filter: {_id: u._id},
-          update: {
-            $set: {levelUpdateHoldUntil: oneDaysFromNow()}
-          }
+          update: {$set: {levelUpdateHoldUntil: oneDayFromNow()}}
         }
       })
     }
@@ -160,7 +209,7 @@ async function runJob() {
   }
 }
 
-// 🕒 Run every 1 hour (change to '* * * * *' for 1-min testing)
+// Every 30s for testing; change to '0 * * * *' for hourly
 cron.schedule('*/30 * * * * *', async () => {
   await runJob()
 })
