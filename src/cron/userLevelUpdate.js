@@ -130,11 +130,11 @@ async function processUpTo10Users() {
   const now = new Date()
 
   const users = await User.find({
-    ...DOWNLINE_MATCH
-    //    $or: [
-    //  {levelUpdateHoldUntil: {$exists: false}},
-    //  {levelUpdateHoldUntil: {$lte: now}}
-    //]
+    ...DOWNLINE_MATCH,
+    $or: [
+      {levelUpdateHoldUntil: {$exists: false}},
+      {levelUpdateHoldUntil: {$lte: now}}
+    ]
   })
     .select('_id user_level balance')
     .lean()
