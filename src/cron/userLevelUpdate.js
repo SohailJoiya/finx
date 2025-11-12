@@ -137,6 +137,7 @@ async function processUpTo10Users() {
     ]
   })
     .select('_id user_level balance')
+    .limit(10)
     .lean()
 
   if (!users.length) return
