@@ -101,6 +101,9 @@ exports.requestWithdrawal = async (req, res) => {
       network
     })
 
+    user.balance = Number((user.balance - amt).toFixed(8))
+    await user.save()
+
     // Find admins
     const admin = await User.findOne({role: 'admin'}).select('_id name email')
 

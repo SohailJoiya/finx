@@ -184,20 +184,51 @@ exports.getDeposits = async (req, res) => {
 // ---- Admin: Withdrawals list (unchanged) ----
 exports.getWithdrawals = async (req, res) => {
   try {
-    const {startDate, endDate, page = 1, limit = 10} = req.query
+    const {startDate, endDate, page = 1, limit = 10, status, search} = req.query
     const skip = (page - 1) * limit
     const filter = {}
+
+    // --- Date filter
     if (startDate || endDate) {
       filter.createdAt = {}
       if (startDate) filter.createdAt.$gte = new Date(startDate)
       if (endDate) filter.createdAt.$lte = new Date(endDate)
     }
+
+    // --- Status filter
+    if (status && status !== 'All') {
+      filter.status = status
+    } else if (status === 'All') {
+      filter.status = {$in: ['Approved', 'Pending', 'Declined']}
+    }
+
+    // --- Search filter
+    if (search) {
+      // Build regex for partial / case-insensitive matching
+      const regex = new RegExp(search, 'i')
+
+      // Find matching users first (by name or email)
+      const matchingUsers = await User.find({
+        $or: [{firstName: regex}, {lastName: regex}, {email: regex}]
+      }).select('_id')
+
+      const userIds = matchingUsers.map(u => u._id)
+
+      // Apply OR condition for user match or withdrawal _id match
+      filter.$or = [
+        {user: {$in: userIds}},
+        {_id: search.match(/^[0-9a-fA-F]{24}$/) ? search : null} // match ObjectId string
+      ].filter(Boolean) // remove null entries
+    }
+
+    // --- Query
     const total = await Withdrawal.countDocuments(filter)
     const withdrawals = await Withdrawal.find(filter)
       .populate('user', 'firstName lastName email role balance')
       .sort({createdAt: -1})
       .skip(Number(skip))
       .limit(Number(limit))
+
     res.json({
       total,
       page: Number(page),

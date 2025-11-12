@@ -98,33 +98,26 @@ function decideLevel(
   if (totalInvestment >= 5000 && directCount >= 20 && indirectCount >= 70) {
     target = 5
   } else if (
-    totalInvestment >= 4999 &&
+    totalInvestment >= 3000 &&
     directCount >= 10 &&
     indirectCount >= 25
   ) {
     target = 4
   } else if (
-    totalInvestment >= 2999 &&
+    totalInvestment >= 1500 &&
     directCount >= 5 &&
     indirectCount >= 15
   ) {
     target = 3
-  } else if (
-    totalInvestment >= 1499 &&
-    directCount >= 3 &&
-    indirectCount >= 5
-  ) {
+  } else if (totalInvestment >= 500 && directCount >= 3 && indirectCount >= 5) {
     target = 2
   } else if (totalInvestment >= 35 && totalInvestment < 500) {
-    target = 1
-  } else if (totalInvestment >= 500 && totalInvestment < 1499) {
-    // Optional: make the 500–1498 band explicit as Level 1
     target = 1
   } else {
     target = 0
   }
 
-  return Math.max(currentLevel || 0, target)
+  return target
 }
 
 function oneDayFromNow() {
@@ -137,14 +130,13 @@ async function processUpTo10Users() {
   const now = new Date()
 
   const users = await User.find({
-    ...DOWNLINE_MATCH,
-    $or: [
-      {levelUpdateHoldUntil: {$exists: false}},
-      {levelUpdateHoldUntil: {$lte: now}}
-    ]
+    ...DOWNLINE_MATCH
+    //    $or: [
+    //  {levelUpdateHoldUntil: {$exists: false}},
+    //  {levelUpdateHoldUntil: {$lte: now}}
+    //]
   })
     .select('_id user_level balance')
-    .limit(10)
     .lean()
 
   if (!users.length) return
@@ -159,13 +151,12 @@ async function processUpTo10Users() {
     ])
 
     const newLevel = decideLevel(
-      totalInvestment,
+      u.balance,
       directCount,
       indirectCount,
       u.user_level
     )
-
-    if (newLevel > (u.user_level || 0)) {
+    if (newLevel != u.user_level) {
       bulkOps.push({
         updateOne: {
           filter: {_id: u._id},

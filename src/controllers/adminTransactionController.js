@@ -278,8 +278,7 @@ exports.approveWithdrawal = async (req, res) => {
     const user = await User.findById(w.user)
     if (user.balance < w.amount)
       return res.status(400).json({message: 'Insufficient user balance'})
-    user.balance = Number((user.balance - w.amount).toFixed(8))
-    await user.save()
+
     w.status = 'Approved'
     await w.save()
     await sendNotificationDoc(
@@ -297,11 +296,16 @@ exports.declineWithdrawal = async (req, res) => {
   try {
     const {reason} = req.body
     const w = await Withdrawal.findById(req.params.id)
+
     if (!w) return res.status(404).json({message: 'Withdrawal not found'})
     if (w.status !== 'Pending')
       return res.status(400).json({message: 'Already processed'})
     w.status = 'Declined'
     w.adminReason = reason || ''
+    let user = await User.findById(w.user)
+    user.balance = Number((user.balance + w.amount).toFixed(8))
+    await user.save()
+
     await w.save()
     await sendNotificationDoc(
       w.user,
