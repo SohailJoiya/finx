@@ -111,7 +111,7 @@ function decideLevel(
     target = 3
   } else if (totalInvestment >= 500 && directCount >= 3 && indirectCount >= 5) {
     target = 2
-  } else if (totalInvestment >= 35 && totalInvestment < 500) {
+  } else if (totalInvestment >= 35) {
     target = 1
   } else {
     target = 0
